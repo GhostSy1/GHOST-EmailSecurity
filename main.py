@@ -17,7 +17,7 @@ def banner():
  ██║   ██║██╔══██║██║   ██║╚════██║   ██║        ╚════██║██╔════╝██║     ██║   ██║
  ╚██████╔╝██║  ██║╚██████╔╝███████║   ██║        ███████║███████╗╚██████╗╚██████╔╝
   ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝   ╚═╝        ╚══════╝╚══════╝ ╚═════╝ ╚═════╝ 
-    GHOST-EmailSecurity: Real Email Header & Authentication Forensics
+    GHOST-EmailSecurity: Advanced SPF, DKIM & DMARC Alignment Forensics (v3.2-PRO)
 """)
 
 def analyze_email_file(eml_path):
@@ -31,47 +31,54 @@ def analyze_email_file(eml_path):
             
             subject = msg.get("Subject", "No Subject")
             sender = msg.get("From", "Unknown Sender")
+            return_path = msg.get("Return-Path", "Unknown Return-Path")
             recipient = msg.get("To", "Unknown Recipient")
-            date = msg.get("Date", "Unknown Date")
             
             findings.append({
-                "type": "Email Metadata",
+                "type": "Header Alignment Overview",
                 "subject": subject,
-                "from": sender,
-                "to": recipient,
-                "date": date
+                "from_header": sender,
+                "return_path": return_path
             })
 
-            # Check Authentication-Results or Received headers for SPF/DKIM/DMARC clues
+            # Check SPF, DKIM, DMARC via Authentication-Results
             auth_results = msg.get_all("Authentication-Results", [])
-            received_headers = msg.get_all("Received", [])
-            
+            spf_pass = any("spf=pass" in r.lower() for r in auth_results)
+            dkim_pass = any("dkim=pass" in r.lower() for r in auth_results)
+            dmarc_pass = any("dmarc=pass" in r.lower() for r in auth_results)
+
             findings.append({
-                "type": "Authentication Headers",
-                "authentication_results": auth_results if auth_results else ["No explicit Authentication-Results header found"],
-                "received_hop_count": len(received_headers)
+                "type": "Authentication & Policy Check",
+                "spf_status": "PASS" if spf_pass else "FAIL / UNKNOWN",
+                "dkim_status": "PASS" if dkim_pass else "FAIL / UNKNOWN",
+                "dmarc_status": "PASS" if dmarc_pass else "FAIL / UNKNOWN",
+                "raw_authentication_results": auth_results if auth_results else ["None found"]
             })
 
-            # Check for suspicious attachments or links in body
-            attachments = []
-            for part in msg.walk():
-                filename = part.get_filename()
-                if filename:
-                    attachments.append(filename)
-            
+            # Check for spoofing / domain mismatch
+            domain_mismatch = False
+            if "@" in sender and "@" in return_path:
+                from_domain = sender.split("@")[-1].strip(">").lower()
+                return_domain = return_path.split("@")[-1].strip(">").lower()
+                if from_domain != return_domain:
+                    domain_mismatch = True
+
             findings.append({
-                "type": "Payloads & Attachments",
-                "attachments": attachments if attachments else ["No attachments detected"]
+                "type": "Domain Alignment Analysis",
+                "from_domain": sender,
+                "return_path_domain": return_path,
+                "domain_mismatch_detected": domain_mismatch,
+                "spoofing_risk": "HIGH" if domain_mismatch and not dmarc_pass else "LOW"
             })
 
     except Exception as e:
-        findings.append({"error": f"Failed to parse email file: {str(e)}"})
+        findings.append({"error": f"Failed to parse email: {str(e)}"})
 
     return findings
 
 def main():
     banner()
-    parser = argparse.ArgumentParser(description="GHOST-EmailSecurity Engine")
+    parser = argparse.ArgumentParser(description="GHOST-EmailSecurity Enterprise Engine")
     parser.add_argument("--target", help="Path to raw email (.eml) file")
     parser.add_argument("--json", help="Output JSON report path", default="email_report.json")
     args, unknown = parser.parse_known_args()
@@ -85,7 +92,7 @@ def main():
 
     report = {
         "email_file": target,
-        "engine": "GHOST-EmailSecurity v3.0-PRO",
+        "engine": "GHOST-EmailSecurity v3.2-PRO",
         "findings": findings
     }
 
