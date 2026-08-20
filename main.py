@@ -2,9 +2,8 @@ import os
 import sys
 import argparse
 import json
-import socket
-import urllib.request
-import urllib.parse
+import email
+from email import policy
 
 def banner():
     if os.name == 'nt':
@@ -12,73 +11,87 @@ def banner():
     else:
         os.system('clear')
     print(r"""
-  ██████╗ ██╗  ██╗ ██████╗ ███████╗████████╗     ██╗███╗   ██╗████████╗███████╗██╗      
- ██╔════╝ ██║  ██║██╔═══██╗██╔════╝╚══██╔══╝     ██║████╗  ██║╚══██╔══╝██╔════╝██║      
- ██║  ███╗███████║██║   ██║███████╗   ██║        ██║██╔██╗ ██║   ██║   █████╗  ██║      
- ██║   ██║██╔══██║██║   ██║╚════██║   ██║        ██║██║╚██╗██║   ██║   ██╔══╝  ██║      
- ╚██████╔╝██║  ██║╚██████╔╝███████║   ██║        ██║██║ ╚████║   ██║   ███████╗███████╗ 
-  ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝   ╚═╝        ╚═╝╚═╝  ╚═══╝   ╚═╝   ╚══════╝╚══════╝ 
-    Ghost-SY1 Professional Security Module (Real Operational Execution)
+  ██████╗ ██╗  ██╗ ██████╗ ███████╗████████╗     ███████╗███████╗ ██████╗██╗   ██╗
+ ██╔════╝ ██║  ██║██╔═══██╗██╔════╝╚══██╔══╝     ██╔════╝██╔════╝██╔════╝██║   ██║
+ ██║  ███╗███████║██║   ██║███████╗   ██║        ███████╗████ôt  ██║     ██║   ██║
+ ██║   ██║██╔══██║██║   ██║╚════██║   ██║        ╚════██║██╔════╝██║     ██║   ██║
+ ╚██████╔╝██║  ██║╚██████╔╝███████║   ██║        ███████║███████╗╚██████╗╚██████╔╝
+  ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝   ╚═╝        ╚══════╝╚══════╝ ╚═════╝ ╚═════╝ 
+    GHOST-EmailSecurity: Real Email Header & Authentication Forensics
 """)
 
-def perform_operational_scan(target):
+def analyze_email_file(eml_path):
     findings = []
-    # Real socket/HTTP check based on target type
-    if "http://" in target or "https://" in target:
-        try:
-            req = urllib.request.Request(target, headers={'User-Agent': 'Ghost-SY1-Scanner/3.0'})
-            with urllib.request.urlopen(req, timeout=5) as response:
-                findings.append({
-                    "type": "HTTP Inspection",
-                    "status_code": response.getcode(),
-                    "headers": dict(response.info())
-                })
-        except Exception as e:
-            findings.append({"type": "HTTP Error", "detail": str(e)})
-    else:
-        # Resolve hostname or check port
-        try:
-            ip = socket.gethostbyname(target)
-            findings.append({"type": "DNS Resolution", "target": target, "resolved_ip": ip})
+    if not os.path.exists(eml_path):
+        return [{"error": f"Email file not found: {eml_path}"}]
+
+    try:
+        with open(eml_path, "r", encoding="utf-8", errors="ignore") as f:
+            msg = email.message_from_file(f, policy=policy.default)
             
-            # Quick connect check on common ports (80, 443, 22)
-            for port in [80, 443, 22]:
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.settimeout(1)
-                res = s.connect_ex((ip, port))
-                if res == 0:
-                    findings.append({"type": "Port Open", "port": port})
-                s.close()
-        except Exception as e:
-            findings.append({"type": "Recon Error", "detail": str(e)})
+            subject = msg.get("Subject", "No Subject")
+            sender = msg.get("From", "Unknown Sender")
+            recipient = msg.get("To", "Unknown Recipient")
+            date = msg.get("Date", "Unknown Date")
             
+            findings.append({
+                "type": "Email Metadata",
+                "subject": subject,
+                "from": sender,
+                "to": recipient,
+                "date": date
+            })
+
+            # Check Authentication-Results or Received headers for SPF/DKIM/DMARC clues
+            auth_results = msg.get_all("Authentication-Results", [])
+            received_headers = msg.get_all("Received", [])
+            
+            findings.append({
+                "type": "Authentication Headers",
+                "authentication_results": auth_results if auth_results else ["No explicit Authentication-Results header found"],
+                "received_hop_count": len(received_headers)
+            })
+
+            # Check for suspicious attachments or links in body
+            attachments = []
+            for part in msg.walk():
+                filename = part.get_filename()
+                if filename:
+                    attachments.append(filename)
+            
+            findings.append({
+                "type": "Payloads & Attachments",
+                "attachments": attachments if attachments else ["No attachments detected"]
+            })
+
+    except Exception as e:
+        findings.append({"error": f"Failed to parse email file: {str(e)}"})
+
     return findings
 
 def main():
     banner()
-    parser = argparse.ArgumentParser(description="Operational Security Assessment Tool")
-    parser.add_argument("--target", help="Target domain, URL, or IP address")
-    parser.add_argument("--json", help="Output JSON report path", default="report.json")
+    parser = argparse.ArgumentParser(description="GHOST-EmailSecurity Engine")
+    parser.add_argument("--target", help="Path to raw email (.eml) file")
+    parser.add_argument("--json", help="Output JSON report path", default="email_report.json")
     args, unknown = parser.parse_known_args()
 
     target = args.target
     if not target:
-        target = input("[*] Enter target asset (IP/URL/Domain): ").strip()
+        target = input("[*] Enter path to raw email (.eml) file: ").strip()
 
-    print(f"\n[+] Executing live operational scan against target: {target}")
-    findings = perform_operational_scan(target)
+    print(f"\n[+] Analyzing email file: {target}")
+    findings = analyze_email_file(target)
 
     report = {
-        "target": target,
-        "execution_mode": "live-operational",
+        "email_file": target,
+        "engine": "GHOST-EmailSecurity v3.0-PRO",
         "findings": findings
     }
 
     with open(args.json, "w") as f:
         json.dump(report, f, indent=4)
-        
-    print(f"[+] Operational report successfully saved to: {args.json}")
-    print("[+] Execution completed with zero mocked data.")
+    print(f"[+] Email security report saved to: {args.json}")
 
 if __name__ == "__main__":
     main()
